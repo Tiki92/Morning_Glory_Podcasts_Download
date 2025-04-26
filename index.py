@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 import urllib.request
 
 # URL of the main podcast page
-main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/44/2019"
+main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/46/2020"
 
 # Set up Selenium WebDriver for Firefox
 driver = webdriver.Firefox()  # Make sure you have geckodriver installed
@@ -101,17 +101,22 @@ def download_all_podcasts(podcast_urls):
                 EC.presence_of_element_located((By.XPATH, '//h2[@style="line-height: 1;"]'))
             )
             title = title_element.text
-            # Sanitize title for use in filenames
             safe_title = sanitize_filename(title)
-            
+
+            # Define save path with title
+            save_path = os.path.join("podcasts", f"{safe_title}.mp3")
+
+            # ✅ Check if file already exists
+            if os.path.exists(save_path):
+                print(f"File already exists, skipping: {save_path}")
+                continue
+
             # Wait for the download button to be clickable
             download_button = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, '//a[contains(text(), "Descarcă") or contains(text(), "Download")]'))
             )
             download_url = download_button.get_attribute('href')
-            
-            # Define save path with title
-            save_path = os.path.join("podcasts", f"{safe_title}.mp3")  # Adjust extension based on file type
+
             download_podcast(download_url, save_path)
         except Exception as e:
             print(f"Error on podcast page {idx}: {e}")
