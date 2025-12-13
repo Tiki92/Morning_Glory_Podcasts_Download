@@ -1,6 +1,7 @@
 import os
 import time
 import re
+import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -12,79 +13,96 @@ from urllib.parse import urljoin
 import urllib.request
 import progressbar
 
-class MyProgressBar():
-    def __init__(self):
-        self.pbar = None
+def show_progress(block_num, block_size, total_size):
+    """
+    Callback function to show the download progress.
 
-    def __call__(self, block_num, block_size, total_size):
-        if not self.pbar:
-            self.pbar=progressbar.ProgressBar(maxval=total_size)
-            self.pbar.start()
-
-        downloaded = block_num * block_size
-        if downloaded < total_size:
-            self.pbar.update(downloaded)
-        else:
-            self.pbar.finish()
+    block_num: The number of blocks transferred so far.
+    block_size: The size of each block in bytes.
+    total_size: The total size of the file in bytes (or -1 if unknown).
+    """
+    read_so_far = block_num * block_size
+    if total_size > 0:
+        percent = read_so_far * 100 / total_size
+        # Use '\r' to return the cursor to the start of the line for an in-place update
+        s = f"\r{percent:5.1f}% {read_so_far / 1024 / 1024:.2f} MB / {total_size / 1024 / 1024:.2f} MB"
+        sys.stderr.write(s)
+        if read_so_far >= total_size:
+            sys.stderr.write('\n') # Move to a new line when complete
+    else:
+        # Handle cases where total size is unknown
+        s = f"\rDownloaded {read_so_far / 1024:.2f} KB"
+        sys.stderr.write(s)
 
 # URL of the main podcast page
 main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/47/2021"
 
-# Set up Selenium WebDriver for Firefox
-driver = webdriver.Firefox()  # Make sure you have geckodriver installed
-driver.get(main_url)
+# Check if podcast URLs are already saved
+if os.path.exists('podcast_urls.txt'):
+    with open('podcast_urls.txt', 'r') as f:
+        podcast_urls = [line.strip() for line in f if line.strip()]
+    print("Loaded podcast URLs from file.")
+else:
+    # Set up Selenium WebDriver for Firefox
+    driver = webdriver.Firefox()  # Make sure you have geckodriver installed
+    driver.get(main_url)
 
-# Handle cookie consent popup if it exists
-try:
-    cookie_accept_button = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.XPATH, '//button[contains(text(), "Permitere toate")]'))
-    )
-    cookie_accept_button.click()
-    print("Cookie consent accepted.")
-except Exception as e:
-    print("No cookie consent popup or failed to accept.")
-    print(f"Error: {e}")
-
-# Load all podcasts by clicking the "Mai multe podcasturi" button
-last_height = driver.execute_script("return document.body.scrollHeight")
-podcast_urls = []
-
-while True:
+    # Handle cookie consent popup if it exists
     try:
-        # Find the "Mai multe podcasturi" button
-        load_more_button = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.XPATH, '//div[contains(@class, "aw-page-header")]//a[contains(text(), "Mai multe podcasturi")]'))
+        cookie_accept_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, '//button[contains(text(), "Permitere toate")]'))
         )
-        
-        # Scroll the button into view
-        driver.execute_script("arguments[0].scrollIntoView(true);", load_more_button)
-        time.sleep(1)  # Wait for the scrolling to complete
-        
-        # Click the button
-        load_more_button.click()
-        time.sleep(2)  # Wait for the new content to load
-
-        # Check if the page height has changed to detect if new content is loaded
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height == last_height:
-            print("No more podcasts to load or an error occurred.")
-            break
-        last_height = new_height
-
+        cookie_accept_button.click()
+        print("Cookie consent accepted.")
     except Exception as e:
+        print("No cookie consent popup or failed to accept.")
         print(f"Error: {e}")
-        break
 
-# Parse the loaded page with BeautifulSoup
-soup = BeautifulSoup(driver.page_source, 'html.parser')
-driver.quit()
+    # Load all podcasts by clicking the "Mai multe podcasturi" button
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    podcast_urls = []
 
-# Find all podcast links
-podcast_urls = []
-for link in soup.find_all('a', class_='aw-one-podcast-meta', href=True):
-    href = link['href']
-    if href.startswith('/podcast-episode'):
-        podcast_urls.append(urljoin(main_url, href))
+    while True:
+        try:
+            # Find the "Mai multe podcasturi" button
+            load_more_button = WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located((By.XPATH, '//div[contains(@class, "aw-page-header")]//a[contains(text(), "Mai multe podcasturi")]'))
+            )
+            
+            # Scroll the button into view
+            driver.execute_script("arguments[0].scrollIntoView(true);", load_more_button)
+            time.sleep(1)  # Wait for the scrolling to complete
+            
+            # Click the button
+            load_more_button.click()
+            time.sleep(2)  # Wait for the new content to load
+
+            # Check if the page height has changed to detect if new content is loaded
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                print("No more podcasts to load or an error occurred.")
+                break
+            last_height = new_height
+
+        except Exception as e:
+            print(f"Error: {e}")
+            break
+
+    # Parse the loaded page with BeautifulSoup
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    driver.quit()
+
+    # Find all podcast links
+    for link in soup.find_all('a', class_='aw-one-podcast-meta', href=True):
+        href = link['href']
+        if href.startswith('/podcast-episode'):
+            podcast_urls.append(urljoin(main_url, href))
+
+    # Save the podcast URLs to file
+    with open('podcast_urls.txt', 'w') as f:
+        for url in podcast_urls:
+            f.write(url + '\n')
+    print("Saved podcast URLs to file.")
 
 # Print all podcast links
 print("Found podcast links:")
@@ -101,7 +119,8 @@ def sanitize_filename(filename):
 # Function to download podcast
 def download_podcast(download_url, save_path):
     try:
-        urllib.request.urlretrieve(download_url, save_path)
+        # progress = MyProgressBar()
+        urllib.request.urlretrieve(download_url, save_path, show_progress)
         print(f"Downloaded: {save_path}")
     except Exception as e:
         print(f"Failed to download {download_url}. Error: {e}")
