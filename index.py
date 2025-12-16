@@ -11,28 +11,12 @@ from selenium.webdriver.firefox.options import Options
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import urllib.request
-import progressbar
-
-def show_progress(block_num, block_size, total_size):
-    """
-    Callback function to show the download progress.
-
-    block_num: The number of blocks transferred so far.
-    block_size: The size of each block in bytes.
-    total_size: The total size of the file in bytes (or -1 if unknown).
-    """
-    read_so_far = block_num * block_size
-    if total_size > 0:
-        percent = read_so_far * 100 / total_size
-        # Use '\r' to return the cursor to the start of the line for an in-place update
-        s = f"\r{percent:5.1f}% {read_so_far / 1024 / 1024:.2f} MB / {total_size / 1024 / 1024:.2f} MB"
-        sys.stderr.write(s)
-        if read_so_far >= total_size:
-            sys.stderr.write('\n') # Move to a new line when complete
-    else:
-        # Handle cases where total size is unknown
-        s = f"\rDownloaded {read_so_far / 1024:.2f} KB"
-        sys.stderr.write(s)
+try:
+    import requests
+    from tqdm import tqdm
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
 
 # URL of the main podcast page
 main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/47/2021"
@@ -118,12 +102,56 @@ def sanitize_filename(filename):
 
 # Function to download podcast
 def download_podcast(download_url, save_path):
-    try:
-        # progress = MyProgressBar()
-        urllib.request.urlretrieve(download_url, save_path, show_progress)
-        print(f"Downloaded: {save_path}")
-    except Exception as e:
-        print(f"Failed to download {download_url}. Error: {e}")
+    if HAS_REQUESTS:
+        try:
+            # Try HEAD request to get content-length
+            head_response = requests.head(download_url)
+            head_response.raise_for_status()
+            total_size = int(head_response.headers.get('content-length', 0))
+            
+            with requests.get(download_url, stream=True) as r:
+                r.raise_for_status()
+                if total_size == 0:
+                    total_size = int(r.headers.get('content-length', 0))  # Fallback to GET headers
+                with open(save_path, 'wb') as f, tqdm(
+                    desc=os.path.basename(save_path),
+                    total=total_size,
+                    unit='iB',
+                    unit_scale=True,
+                    unit_divisor=1024,
+                ) as bar:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        size = f.write(chunk)
+                        bar.update(size)
+            print(f"Downloaded: {save_path}")
+        except Exception as e:
+            print(f"Failed to download {download_url}. Error: {e}")
+    else:
+        total_size = 0
+        try:
+            with urllib.request.urlopen(download_url) as response:
+                total_size = int(response.headers.get('Content-Length', 0))
+        except:
+            pass
+        print(f"Total size: {total_size}")  # Debug
+
+        def progress_hook(block_num, block_size, reported_total):
+            read_so_far = block_num * block_size
+            if total_size > 0:
+                percent = read_so_far * 100 / total_size
+                s = f"\r{percent:5.1f}% {read_so_far / 1024 / 1024:.2f} MB / {total_size / 1024 / 1024:.2f} MB"
+                sys.stderr.write(s)
+                if read_so_far >= total_size:
+                    sys.stderr.write('\n')
+            else:
+                s = f"\rDownloaded {read_so_far / 1024:.2f} KB"
+                sys.stderr.write(s)
+
+        try:
+            urllib.request.urlretrieve(download_url, save_path, progress_hook)
+            print(f"Downloaded: {save_path}")
+        except Exception as e:
+            print(f"Failed to download {download_url}. Error: {e}")
 
 # Function to download all podcasts from the given list of podcast URLs
 def download_all_podcasts(podcast_urls):
@@ -158,7 +186,9 @@ def download_all_podcasts(podcast_urls):
             title_element = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.XPATH, '//h2[@style="line-height: 1;"]'))
             )
+            print(f"Extracted title for podcast {idx}: {title_element}")
             title = title_element.text
+            print(f"Podcast {idx} title: {title}")
             safe_title = sanitize_filename(title)
 
             # Define save path with title
