@@ -23,12 +23,22 @@ main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/47/20
 
 # Check if podcast URLs are already saved
 if os.path.exists('podcast_urls.txt'):
-    with open('podcast_urls.txt', 'r') as f:
-        podcast_urls = [line.strip() for line in f if line.strip()]
-    print("Loaded podcast URLs from file.")
+    podcast_data = []
+    with open('podcast_urls.txt', 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if '|' in line:
+                title, url = line.split('|', 1)
+                podcast_data.append((title, url))
+            else:
+                # Fallback for old format (just URL)
+                podcast_data.append(("Unknown Title", line))
+    print("Loaded podcast data from file.")
 else:
     # Set up Selenium WebDriver for Firefox
-    driver = webdriver.Firefox()  # Make sure you have geckodriver installed
+    firefox_options = Options()
+    firefox_options.add_argument('--headless')  # Run in headless mode
+    driver = webdriver.Firefox(options=firefox_options)  # Make sure you have geckodriver installed
     driver.get(main_url)
 
     # Handle cookie consent popup if it exists
@@ -44,7 +54,7 @@ else:
 
     # Load all podcasts by clicking the "Mai multe podcasturi" button
     last_height = driver.execute_script("return document.body.scrollHeight")
-    podcast_urls = []
+    podcast_data = []
 
     while True:
         try:
@@ -74,24 +84,44 @@ else:
 
     # Parse the loaded page with BeautifulSoup
     soup = BeautifulSoup(driver.page_source, 'html.parser')
+    # print("Show soup content loaded.")
+    # print(soup.prettify())  # Print the parsed HTML for debugging
+    
+    # Find the podcast item list div
+    podcast_list = soup.find('div', class_='aw-podcast-item-list')
+    # if podcast_list:
+    #     print("Found podcast list div:", podcast_list.prettify())
+    # else:
+    #     print("Podcast list div not found.")
+    
+    # print("Finished loading all podcasts.")
+    # print(podcast_list.prettify() if podcast_list else "No podcast list to display.")
     driver.quit()
 
     # Find all podcast links
-    for link in soup.find_all('a', class_='aw-one-podcast-meta', href=True):
+    for link in podcast_list.find_all('a', class_='aw-one-podcast-meta', href=True):
+        print("Found podcast link:", link)
         href = link['href']
+        title = link.find('h3')
+        if title:
+            title_text = title.text.strip()
+        else:
+            title_text = "No title found"
+        print(f"Podcast title: {title_text}")
         if href.startswith('/podcast-episode'):
-            podcast_urls.append(urljoin(main_url, href))
+            full_url = urljoin(main_url, href)
+            podcast_data.append((title_text, full_url))
 
     # Save the podcast URLs to file
-    with open('podcast_urls.txt', 'w') as f:
-        for url in podcast_urls:
-            f.write(url + '\n')
-    print("Saved podcast URLs to file.")
+    with open('podcast_urls.txt', 'w', encoding='utf-8') as f:
+        for title, url in podcast_data:
+            f.write(f"{title}|{url}\n")
+    print("Saved podcast data to file.")
 
 # Print all podcast links
 print("Found podcast links:")
-for idx, podcast_link in enumerate(podcast_urls, start=1):
-    print(f"{idx}: {podcast_link}")
+for idx, (title, url) in enumerate(podcast_data, start=1):
+    print(f"{idx}: {title} - {url}")
 
 # Create the "podcasts" directory if it does not exist
 os.makedirs("podcasts", exist_ok=True)
@@ -102,6 +132,7 @@ def sanitize_filename(filename):
 
 # Function to download podcast
 def download_podcast(download_url, save_path):
+    print(f"Starting download from {download_url} to {save_path}")
     if HAS_REQUESTS:
         try:
             # Try HEAD request to get content-length
@@ -153,16 +184,25 @@ def download_podcast(download_url, save_path):
         except Exception as e:
             print(f"Failed to download {download_url}. Error: {e}")
 
-# Function to download all podcasts from the given list of podcast URLs
-def download_all_podcasts(podcast_urls):
+# Function to download all podcasts from the given list of podcast data
+def download_all_podcasts(podcast_data):
      # Set global page load timeout for all instances created in this function context
     PAGE_LOAD_TIMEOUT = 10 # Seconds
 
-    for idx, podcast_url in enumerate(podcast_urls, start=1):
+    for idx, (title, podcast_url) in enumerate(podcast_data, start=1):
+        safe_title = sanitize_filename(title)
+        save_path = os.path.join("podcasts", f"{safe_title}.mp3")
+
+        # Check if file already exists before navigating
+        if os.path.exists(save_path):
+            print(f"File already exists, skipping: {save_path}")
+            continue
+
         driver = None # Initialize driver variable outside try block
         try:
             # --- Setup WebDriver with timeout options ---
             firefox_options = Options()
+            firefox_options.add_argument('--headless')  # Run in headless mode
             # You can add other options here if needed (e.g., headless mode)
             
             driver = webdriver.Firefox(options=firefox_options)
@@ -181,26 +221,9 @@ def download_all_podcasts(podcast_urls):
 
             print(f"Visiting podcast page {idx}: {podcast_url}")
 
-            # Extract podcast title
-            # Use a short timeout here since the page is presumably loaded/refreshed
-            title_element = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.XPATH, '//h2[@style="line-height: 1;"]'))
-            )
-            print(f"Extracted title for podcast {idx}: {title_element}")
-            title = title_element.text
             print(f"Podcast {idx} title: {title}")
             safe_title = sanitize_filename(title)
-
-            # Define save path with title
             save_path = os.path.join("podcasts", f"{safe_title}.mp3")
-
-            # ✅ Check if file already exists
-            if os.path.exists(save_path):
-                print(f"File already exists, skipping: {save_path}")
-                continue
-            
-            # If title extraction also fails (e.g., the element never appears), 
-            # the outer 'except Exception' will catch it.
 
             # Wait for the download button to be clickable
             download_button = WebDriverWait(driver, 10).until(
@@ -225,6 +248,6 @@ def download_all_podcasts(podcast_urls):
                 driver.quit()
 
 # Start downloading podcasts
-download_all_podcasts(podcast_urls)
+download_all_podcasts(podcast_data)
 
 print("All podcasts have been processed.")
