@@ -6,10 +6,13 @@ podcast_dir = "podcasts"
 
 # Function to format date in the title
 def format_date_in_title(title):
-    # Find dates in various formats: d.m.yyyy, dd.mm.yyyy, d.m.yyyy
-    match = re.search(r'(\d{1,2})\.(\d{1,2})\.(\d{4})', title)
+    # Find dates in various formats: d.m.yyyy, dd.mm.yyyy, d.m.yy, dd.mm.yy
+    match = re.search(r'(\d{1,2})\.(\d{1,2})\.(\d{2,4})', title)
     if match:
         day, month, year = match.groups()
+        # If year is 2 digits, assume 20xx
+        if len(year) == 2:
+            year = "20" + year
         # Convert to yyyy.mm.dd format, ensuring two digits for day and month
         return f"{year}.{month.zfill(2)}.{day.zfill(2)}"
     return None
@@ -29,7 +32,7 @@ def rename_files_with_date():
         
         if date_str:
             # Create new filename with formatted date
-            new_title = re.sub(r'\d{1,2}\.\d{1,2}\.\d{4}', date_str, title)
+            new_title = re.sub(r'\d{1,2}\.\d{1,2}\.\d{2,4}', date_str, title)
             new_filename = f"{new_title}.mp3"  # Adjust extension based on file type
             new_file_path = os.path.join(podcast_dir, new_filename)
             

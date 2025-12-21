@@ -19,7 +19,7 @@ except ImportError:
     HAS_REQUESTS = False
 
 # URL of the main podcast page
-main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/47/2021"
+main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/44/2019"
 
 # Check if podcast URLs are already saved
 if os.path.exists('podcast_urls.txt'):
