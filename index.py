@@ -19,7 +19,7 @@ except ImportError:
     HAS_REQUESTS = False
 
 # URL of the main podcast page
-main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/67/2024"
+main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/44/2019"
 
 # Romanian month names used by the podcast metadata
 ROMANIAN_MONTHS = {
@@ -51,7 +51,7 @@ def add_date_to_title(title, date_text):
     if not month:
         return title
     title_without_date = re.sub(
-        r"\b\d{1,2}[./-]\d{1,2}[./-]\d{4}\b|\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b",
+        r"\b\d{1,2}[./-]\d{1,2}[./-](?:\d{2}|\d{4})\b|\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b",
         "",
         title,
     )
@@ -67,13 +67,18 @@ def add_date_to_title(title, date_text):
         return f"Morning Glory - {date} - {title_without_date}"
     return f"Morning Glory - {date}"
 
-def podcast_cache_has_dates():
+def podcast_cache_matches_year():
     with open('podcast_urls.txt', 'r', encoding='utf-8') as f:
         titles = [line.strip().split('|', 1)[0] for line in f if line.strip()]
-    return all(re.match(r"^Morning Glory - \d{4}\.\d{2}\.\d{2}\b", title) for title in titles)
+    requested_year = main_url.rstrip('/').split('/')[-1]
+    return all(
+        re.match(rf"^Morning Glory - {re.escape(requested_year)}\.\d{{2}}\.\d{{2}}\b", title)
+        and not re.search(r"\b\d{1,2}[./-]\d{1,2}[./-](?:\d{2}|\d{4})\b", title)
+        for title in titles
+    )
 
 # Check if podcast URLs are already saved
-if os.path.exists('podcast_urls.txt') and podcast_cache_has_dates():
+if os.path.exists('podcast_urls.txt') and podcast_cache_matches_year():
     podcast_data = []
     with open('podcast_urls.txt', 'r', encoding='utf-8') as f:
         for line in f:
