@@ -19,10 +19,61 @@ except ImportError:
     HAS_REQUESTS = False
 
 # URL of the main podcast page
-main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/44/2019"
+main_url = "https://www.rockfm.ro/podcast/9/morning-glory-cu-razvan-exarhu/67/2024"
+
+# Romanian month names used by the podcast metadata
+ROMANIAN_MONTHS = {
+    "ianuarie": "01",
+    "februarie": "02",
+    "martie": "03",
+    "aprilie": "04",
+    "mai": "05",
+    "iunie": "06",
+    "iulie": "07",
+    "august": "08",
+    "septembrie": "09",
+    "octombrie": "10",
+    "noiembrie": "11",
+    "decembrie": "12",
+}
+
+# Function to add a canonical date to a podcast title
+def add_date_to_title(title, date_text):
+    date_match = re.search(
+        r"(\d{1,2})\s+([a-zăâîșț]+)\s+(\d{4})",
+        date_text.lower(),
+    )
+    if not date_match:
+        return title
+
+    day, month_name, year = date_match.groups()
+    month = ROMANIAN_MONTHS.get(month_name)
+    if not month:
+        return title
+    title_without_date = re.sub(
+        r"\b\d{1,2}[./-]\d{1,2}[./-]\d{4}\b|\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b",
+        "",
+        title,
+    )
+    title_without_date = re.sub(
+        r"^\s*(?:Morning Glory|MG)\s*[-:]?\s*",
+        "",
+        title_without_date,
+        flags=re.IGNORECASE,
+    )
+    title_without_date = re.sub(r"\s+-\s*$", "", title_without_date).strip()
+    date = f"{year}.{month}.{day.zfill(2)}"
+    if title_without_date:
+        return f"Morning Glory - {date} - {title_without_date}"
+    return f"Morning Glory - {date}"
+
+def podcast_cache_has_dates():
+    with open('podcast_urls.txt', 'r', encoding='utf-8') as f:
+        titles = [line.strip().split('|', 1)[0] for line in f if line.strip()]
+    return all(re.match(r"^Morning Glory - \d{4}\.\d{2}\.\d{2}\b", title) for title in titles)
 
 # Check if podcast URLs are already saved
-if os.path.exists('podcast_urls.txt'):
+if os.path.exists('podcast_urls.txt') and podcast_cache_has_dates():
     podcast_data = []
     with open('podcast_urls.txt', 'r', encoding='utf-8') as f:
         for line in f:
@@ -107,6 +158,12 @@ else:
             title_text = title.text.strip()
         else:
             title_text = "No title found"
+
+        metadata_date = link.find("h5")
+        if metadata_date:
+            date_span = metadata_date.find("span")
+            if date_span:
+                title_text = add_date_to_title(title_text, date_span.get_text(strip=True))
         print(f"Podcast title: {title_text}")
         if href.startswith('/podcast-episode'):
             full_url = urljoin(main_url, href)
@@ -129,6 +186,11 @@ os.makedirs("podcasts", exist_ok=True)
 # Function to sanitize filenames
 def sanitize_filename(filename):
     return re.sub(r'[\/:*?"<>|]', '', filename).strip()
+
+def podcast_save_path(title, occurrence):
+    safe_title = sanitize_filename(title)
+    suffix = f" ({occurrence})" if occurrence > 1 else ""
+    return os.path.join("podcasts", f"{safe_title}{suffix}.mp3")
 
 # Function to download podcast
 def download_podcast(download_url, save_path):
@@ -188,10 +250,11 @@ def download_podcast(download_url, save_path):
 def download_all_podcasts(podcast_data):
      # Set global page load timeout for all instances created in this function context
     PAGE_LOAD_TIMEOUT = 10 # Seconds
+    title_occurrences = {}
 
     for idx, (title, podcast_url) in enumerate(podcast_data, start=1):
-        safe_title = sanitize_filename(title)
-        save_path = os.path.join("podcasts", f"{safe_title}.mp3")
+        title_occurrences[title] = title_occurrences.get(title, 0) + 1
+        save_path = podcast_save_path(title, title_occurrences[title])
 
         # Check if file already exists before navigating
         if os.path.exists(save_path):
@@ -222,8 +285,6 @@ def download_all_podcasts(podcast_data):
             print(f"Visiting podcast page {idx}: {podcast_url}")
 
             print(f"Podcast {idx} title: {title}")
-            safe_title = sanitize_filename(title)
-            save_path = os.path.join("podcasts", f"{safe_title}.mp3")
 
             # Wait for the download button to be clickable
             download_button = WebDriverWait(driver, 10).until(
